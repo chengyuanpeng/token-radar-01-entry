@@ -37,10 +37,16 @@ export function buildRadar(snapshot:Snapshot):{board:BoardRow[]; radar:any} {
  const protocols=snapshot.protocols;
  const live=protocols.filter(p=>p.mcap_usd!==null&&p.mcap_usd>0&&p.tvl_usd>0);
  const liveCategorized=live.filter(p=>p.category!==null);
- const all=median(liveCategorized.map(p=>p.mcap_usd!/p.tvl_usd));
- const byCat=new Map<string,number[]>();
- for(const p of liveCategorized){const c=p.category!; if(!byCat.has(c))byCat.set(c,[]); byCat.get(c)!.push(p.mcap_usd!/p.tvl_usd);}
- const categories=[...byCat.keys()].sort((a,b)=>a<b?-1:a>b?1:0).map(category=>{const xs=byCat.get(category)!, catMedian=median(xs);const used=catMedian>0&&all>0?Math.exp((xs.length*Math.log(catMedian)+6*Math.log(all))/(xs.length+6)):all;return {category,live_peers:xs.length,median_multiple:catMedian,used_multiple:used};});
+ const rawByCat=new Map<string,number[]>();
+ for(const p of liveCategorized){const c=p.category!; if(!rawByCat.has(c))rawByCat.set(c,[]); rawByCat.get(c)!.push(p.mcap_usd!/p.tvl_usd);}
+ const sortedRatios=liveCategorized.map(p=>p.mcap_usd!/p.tvl_usd).sort((a,b)=>a-b);
+ const nRatios=sortedRatios.length;
+ const loIndex=Math.max(0,Math.min(nRatios-1,Math.floor(0.05*nRatios)));
+ const hiIndex=Math.max(0,Math.min(nRatios-1,Math.floor(0.95*nRatios)));
+ const lo=sortedRatios.length?sortedRatios[loIndex]:0, hi=sortedRatios.length?sortedRatios[hiIndex]:0;
+ const winsorize=(r:number)=>Math.max(lo,Math.min(hi,r));
+ const all=median(sortedRatios.map(winsorize));
+ const categories=[...rawByCat.keys()].sort((a,b)=>a<b?-1:a>b?1:0).map(category=>{const raw=rawByCat.get(category)!, winsorized=raw.map(winsorize), rawMedian=median(raw), winsorMedian=median(winsorized), k=raw.length<=2?12:6;let used=winsorMedian>0&&all>0?Math.exp((raw.length*Math.log(winsorMedian)+k*Math.log(all))/(raw.length+k)):all;used=Math.min(used,2.5*all);return {category,live_peers:raw.length,raw_median_multiple:rawMedian,winsor_median_multiple:winsorMedian,used_multiple:used};});
  const mults=new Map(categories.map(c=>[c.category,c.used_multiple]));
  const candidates=protocols.filter(isCandidate);
  const knownAges=candidates.filter(p=>p.listed_at!==null).map(p=>utcDay(snapshot.as_of)-utcDay(p.listed_at!));
@@ -49,7 +55,7 @@ export function buildRadar(snapshot:Snapshot):{board:BoardRow[]; radar:any} {
   const age=p.listed_at===null?null:utcDay(snapshot.as_of)-utcDay(p.listed_at);
   const ageFor=age===null?ageMedian:age;
   const multiple=p.category===null?all:(mults.get(p.category)??all);
-  const base=p.tvl_usd*multiple;
+  const base=multiple*Math.pow(p.tvl_usd,0.85)*Math.pow(100000000,0.15);
   const g=Math.max(-50,Math.min(100,p.change_7d??0));
   const gf=1+0.5*Math.tanh(g/40);
   const mf=0.75+0.5*(1-Math.exp(-ageFor/540));
@@ -61,7 +67,7 @@ export function buildRadar(snapshot:Snapshot):{board:BoardRow[]; radar:any} {
  }).sort((a,b)=>b.implied_value_usd-a.implied_value_usd||b.tvl_usd-a.tvl_usd||(a.slug<b.slug?-1:a.slug>b.slug?1:0));
  const rankedRows=rows.map((r,i)=>({slug:r.slug,name:r.name,category:r.category,chains:r.chains,tvl_usd:r.tvl_usd,change_7d:r.change_7d,age_days:r.age_days,listed_at:r.listed_at,watchlist:r.watchlist,rank:i+1,implied_value_usd:r.implied_value_usd,base_usd:r.base_usd,multiple:r.multiple,growth_factor:Number(r.growth_factor.toFixed(4)),maturity_factor:Number(r.maturity_factor.toFixed(4)),breadth_factor:Number(r.breadth_factor.toFixed(4)),farm_steps:r.farm_steps}));
  const board=rankedRows.map(r=>({slug:r.slug,name:r.name,rank:r.rank,implied_value_usd:r.implied_value_usd,farm_steps:r.farm_steps}));
- const radar={meta:{as_of:snapshot.as_of,source:snapshot.source,floor_usd:snapshot.floor_usd,protocol_count:protocols.length,candidate_count:candidates.length,watchlist_count:snapshot.watchlist.length,live_count:live.length,model:{shrinkage_k:6,shrink_mode:'log',growth_weight:0.5,maturity_floor:0.75,maturity_range:0.5,maturity_tau_days:540,breadth_per_chain:0.04,min_value_usd:10000},categories},rows:rankedRows};
+ const radar={meta:{as_of:snapshot.as_of,source:snapshot.source,floor_usd:snapshot.floor_usd,protocol_count:protocols.length,candidate_count:candidates.length,watchlist_count:snapshot.watchlist.length,live_count:live.length,model:{winsor_lo_pct:5,winsor_hi_pct:95,shrinkage_k:6,shrinkage_k_small:12,small_sample_max_peers:2,multiple_cap_x:2.5,tvl_exponent:0.85,tvl_ref_usd:100000000,growth_weight:0.5,maturity_floor:0.75,maturity_range:0.5,maturity_tau_days:540,breadth_per_chain:0.04,min_value_usd:10000},categories},rows:rankedRows};
  return {board,radar};
 }
 export function boardIssue(board:BoardRow[],snapshot:Snapshot):string|null {

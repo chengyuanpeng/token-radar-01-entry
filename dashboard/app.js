@@ -7,7 +7,7 @@
   const els = {
     scanned:$('stat-scanned'), candidates:$('stat-candidates'), watchlist:$('stat-watchlist'), live:$('stat-live'), date:$('snapshot-date'), boardAsOf:$('board-asof'),
     multiples:$('multiples-body'), categoryCount:$('category-count'), search:$('search'), category:$('category-filter'), chain:$('chain-filter'), tvl:$('tvl-filter'), watchOnly:$('watchlist-filter'),
-    count:$('result-count'), tbody:$('board-body'), empty:$('empty-state'), board:$('board-view'), detail:$('detail-view'), detailContent:$('detail-content')
+    count:$('result-count'), tbody:$('board-body'), empty:$('empty-state'), board:$('board-view'), detail:$('detail-view'), detailContent:$('detail-content'), signals:$('signals-grid'), signalsView:$('signals-view')
   };
   let sortKey = 'rank';
   let sortDirection = 1;
@@ -41,12 +41,11 @@
     els.candidates.textContent = fmtNum(meta.candidate_count ?? rows.length);
     els.watchlist.textContent = `${fmtNum(meta.watchlist_count)}/40`;
     els.live.textContent = fmtNum(meta.live_count);
-    $('shrinkage-note').textContent = `(k = ${meta.model?.shrinkage_k ?? 6})`;
     els.category.innerHTML = '<option value="">All categories</option>' + categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
     els.chain.innerHTML = '<option value="">All chains</option>' + chains.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
     const categoryRows = Array.isArray(meta.categories) ? meta.categories : [];
     els.categoryCount.textContent = `${categoryRows.length} CATEGORIES`;
-    els.multiples.innerHTML = categoryRows.length ? categoryRows.map(c=>`<tr><td>${esc(c.category)}</td><td class="num">${fmtNum(c.live_peers)}</td><td>${Number(c.used_multiple || 0).toFixed(3)}×</td></tr>`).join('') : '<tr><td colspan="3">No live category peers in this snapshot.</td></tr>';
+    els.multiples.innerHTML = categoryRows.length ? categoryRows.map(c=>{const n=Number(c.live_peers||0),tier=n<=2?'thin':n<=7?'moderate':'deep';return `<tr><td>${esc(c.category)}</td><td class="num">${fmtNum(n)}</td><td>${Number(c.raw_median_multiple||0).toFixed(3)}x</td><td>${Number(c.used_multiple||0).toFixed(3)}x</td><td><small class="evidence ${tier}">${tier.toUpperCase()}</small></td></tr>`}).join('') : '<tr><td colspan="5">No live category peers in this snapshot.</td></tr>'; 
   }
 
   function filteredRows() {
@@ -69,6 +68,11 @@
     });
   }
 
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  function scale(value, field) { const vals=rows.map(r=>Math.max(0,Number(r[field])||0)); const lo=Math.min(...vals),hi=Math.max(...vals); if(hi<=lo)return 100; return clamp(4+96*(Math.log(Math.max(value,lo||1))-Math.log(lo||1))/(Math.log(hi||1)-Math.log(lo||1)),4,100); }
+  function signalScore(r){const g=clamp((Number(r.growth_factor||0)-.51)/(.95),0,1),m=clamp((Number(r.maturity_factor||0)-.75)/.5,0,1),b=clamp((Number(r.breadth_factor||0)-1)/.24,0,1);return clamp(Math.round(5*(.45*g+.35*m+.20*b)),0,5)}
+  function meter(r){const n=signalScore(r);return `<span class="signal-meter" title="Signal ${n}/5 - growth/maturity/breadth composite" aria-label="Signal ${n} out of 5">${[0,1,2,3,4].map(i=>`<i class="${i<n?'on':''}"></i>`).join('')}</span>`}
+  function renderSignals(){const top=[...rows].sort((a,b)=>a.rank-b.rank).slice(0,5),max=Math.max(...rows.map(r=>Number(r.tvl_usd)||0));els.signals.innerHTML=top.map((r,i)=>{const catMeta=(meta.categories||[]).find(c=>c.category===r.category);let note=Number(r.tvl_usd)===max?'Largest pre-token TVL in the snapshot.':Number(r.change_7d)>=20?`TVL up ${fmtPct(r.change_7d)} in 7 days - fastest climber in the top tier.`:catMeta&&catMeta.live_peers<=2?`Category multiple rests on ${catMeta.live_peers} live peer${catMeta.live_peers===1?'':'s'} - thin calibration, flagged in its detail.`:Number(r.age_days)>=900?`Token-free for ${(r.age_days/365).toFixed(1)} years - maturity is doing the lifting.`:`Top-tier implied value with ${(r.chains||[]).length}-chain reach.`;return `<article class="signal-card panel" tabindex="0" role="link" data-slug="${esc(r.slug)}" aria-label="Open ${esc(r.name)} details"><div class="signal-card-top"><b>${String(i+1).padStart(2,'0')}</b><span>SIGNAL ${meter(r)}</span></div><h3>${esc(r.name)} ${r.watchlist?'<small class="wl-tag">WL</small>':''}</h3><span class="category-pill">${esc(categoryName(r))}</span><div class="signal-values"><strong>${fmtUsd(r.implied_value_usd)}</strong><span>TVL ${fmtUsd(r.tvl_usd)}</span></div><div class="bar"><i style="width:${scale(r.tvl_usd,'tvl_usd')}%"></i></div><div class="signal-chips"><span class="${r.change_7d>0?'change-pos':r.change_7d<0?'change-neg':'change-neutral'}">${fmtPct(r.change_7d)}</span><span>${fmtAge(r.age_days)}</span><span>${(r.chains||[]).length} chains</span></div><p>${note}</p></article>`}).join('');}
   function renderBoard() {
     const visible = filteredRows();
     els.count.textContent = fmtNum(visible.length);
@@ -80,7 +84,7 @@
         <td class="rank-cell">${String(r.rank).padStart(3,'0')}</td>
         <td class="protocol-cell"><span class="protocol-name">${esc(r.name)}</span>${r.watchlist?'<span class="wl-tag">WL</span>':''}<span class="protocol-slug">${esc(r.slug)}</span></td>
         <td>${cat}</td><td class="chain-cell"><span class="chain-count">${fmtNum((r.chains||[]).length)}</span><span class="chain-names">${esc(chainNames || '—')}</span></td>
-        <td class="num tvl-value">${fmtUsd(r.tvl_usd)}</td><td class="num ${changeClass}">${fmtPct(r.change_7d)}</td><td class="num age-value">${fmtAge(r.age_days)}</td><td class="value-col implied-value">${fmtUsd(r.implied_value_usd)}</td>
+        <td class="num tvl-value">${fmtUsd(r.tvl_usd)}<span class="bar"><i style="width:${scale(r.tvl_usd,'tvl_usd')}%"></i></span></td><td class="num ${changeClass}">${fmtPct(r.change_7d)}</td><td class="num age-value">${fmtAge(r.age_days)}</td><td>${meter(r)}</td><td class="value-col implied-value">${fmtUsd(r.implied_value_usd)}<span class="bar value-bar"><i style="width:${scale(r.implied_value_usd,'implied_value_usd')}%"></i></span></td>
       </tr>`;
     }).join('');
     els.empty.hidden = visible.length > 0;
@@ -100,13 +104,17 @@
     if (row.change_7d === null || row.change_7d === undefined) return 'No 7-day change reported; neutral factor applied.';
     return `${fmtPct(row.change_7d)} TVL in 7 days, damped.`;
   }
+  function categoryContext(row){if(!row.category)return `<section class="detail-section panel"><div class="detail-section-head"><h3>Category context</h3><span>UNCATEGORIZED</span></div><p>No category assigned in the snapshot; valued at the overall median multiple.</p></section>`;const group=rows.filter(r=>r.category===row.category).sort((a,b)=>b.implied_value_usd-a.implied_value_usd),pos=group.findIndex(r=>r.slug===row.slug)+1,leader=group[0],pct=leader?Number(row.implied_value_usd)/Number(leader.implied_value_usd)*100:0,max=Number(leader?.implied_value_usd)||1;const summary=`Ranks #${pos} of ${group.length} candidates in ${esc(row.category)} by implied value. `+(pos===1?'This is the category leader by implied value.':`Category leader: ${esc(leader.name)} (${fmtUsd(leader.implied_value_usd)}) - this protocol sits at ${pct.toFixed(1)}% of the leader.`);return `<section class="detail-section panel"><div class="detail-section-head"><h3>Category context</h3><span>${esc(row.category).toUpperCase()}</span></div><p class="category-summary">${summary}</p><div class="category-bars">${group.slice(0,6).map(r=>`<div class="category-row ${r.slug===row.slug?'current':''}"><a href="#p=${encodeURIComponent(r.slug)}" data-detail-slug="${esc(r.slug)}">${esc(r.name)}</a><span class="bar"><i style="width:${Math.max(2,Number(r.implied_value_usd)/max*100)}%"></i></span><strong>${fmtUsd(r.implied_value_usd)}</strong><small>${fmtUsd(r.tvl_usd)} TVL</small></div>`).join('')}</div></section>`}
   function renderDetail(row) {
     if (!row) return closeDetail(false);
     selectedSlug = row.slug;
     els.board.hidden = true;
+    els.signalsView.hidden = true;
     els.detail.hidden = false;
     const calibration = getCategoryCalibration(row);
     const peerSuffix = row.category ? `${calibration.peers} live peer${calibration.peers === 1 ? '' : 's'} in ${esc(row.category)}` : 'Overall snapshot median; no category assigned';
+    const tierN=calibration.peers,tier=tierN<=2?'THIN':tierN<=7?'MODERATE':'DEEP';
+    const evidence=row.category?` Evidence: ${tier} (n=${tierN}). Raw category median ${Number((meta.categories||[]).find(c=>c.category===row.category)?.raw_median_multiple||0).toFixed(3)}x -> used ${Number(row.multiple||0).toFixed(3)}x after winsorize + shrinkage.`:'';
     const ageReason = row.age_days == null ? 'Age unavailable; snapshot median used.' : `Live for ${fmtAge(row.age_days)}; longer token-free history raises maturity.`;
     const chainText = row.chains?.length ? row.chains.map(esc).join(', ') : 'No chain data';
     const listed = row.listed_at || 'Unknown';
@@ -116,11 +124,12 @@
       <div class="detail-hero panel"><div><div class="detail-rank">BOARD RANK / ${String(row.rank).padStart(3,'0')}</div><h2 class="detail-title">${esc(row.name)}</h2><p class="detail-slug">${esc(row.slug)}</p><div class="detail-tags">${row.category?`<span class="category-pill">${esc(row.category)}</span>`:'<span class="category-pill">Uncategorized</span>'}${row.watchlist?'<span class="wl-tag">WATCHLIST</span>':''}</div></div><div class="detail-value"><span>IMPLIED LAUNCH VALUE</span><strong>${fmtUsd(row.implied_value_usd)}</strong></div></div>
       <div class="detail-grid panel"><div class="detail-metric"><span>TVL</span><strong>${fmtUsd(row.tvl_usd)}</strong></div><div class="detail-metric"><span>7D TVL CHANGE</span><strong class="${row.change_7d > 0?'change-pos':row.change_7d < 0?'change-neg':'change-neutral'}">${fmtPct(row.change_7d)}</strong></div><div class="detail-metric"><span>CHAINS</span><strong>${chainText}</strong></div><div class="detail-metric"><span>LISTED DATE</span><strong>${esc(listed)}</strong></div><div class="detail-metric"><span>AGE</span><strong>${fmtAge(row.age_days)}</strong></div></div>
       <section class="detail-section panel"><div class="detail-section-head"><h3>Valuation breakdown</h3><span>USD · MODEL FACTORS</span></div><table class="breakdown"><tbody>
-      <tr><td>Base value</td><td>${fmtUsd(row.base_usd)}</td><td>TVL × ${Number(row.multiple || 0).toFixed(3)}× multiple · ${peerSuffix}.</td></tr>
+      <tr><td>Base value</td><td>${fmtUsd(row.base_usd)}</td><td>TVL^0.85 × ${Number(row.multiple || 0).toFixed(3)}x multiple · ${peerSuffix}.${evidence}</td></tr>
       <tr><td>× Growth factor</td><td>${factor(row.growth_factor)}</td><td>7-day growth: ${reasonGrowth(row)}</td></tr>
       <tr><td>× Maturity factor</td><td>${factor(row.maturity_factor)}</td><td>${ageReason}</td></tr>
       <tr><td>× Breadth factor</td><td>${factor(row.breadth_factor)}</td><td>${fmtNum((row.chains||[]).length)} chain${(row.chains||[]).length===1?'':'s'}; multi-chain reach adds a modest lift.</td></tr>
       <tr class="total-row"><td>= Implied value</td><td>${fmtUsd(row.implied_value_usd)}</td><td>Rounded to the nearest dollar.</td></tr></tbody></table></section>
+      ${categoryContext(row)}
       <section class="detail-section panel"><div class="detail-section-head"><h3>Farm plan</h3><span>${String((row.farm_steps||[]).length).padStart(2,'0')} STEPS</span></div><ol class="farm-list">${steps}</ol><p class="rank-note">This protocol ranks <strong>#${row.rank}</strong> of ${fmtNum(rows.length)} pre-token candidates on the board.</p></section>`;
     setHash(`#p=${encodeURIComponent(row.slug)}`);
     window.scrollTo(0,0);
@@ -130,6 +139,7 @@
     selectedSlug = null;
     els.detail.hidden = true;
     els.board.hidden = false;
+    els.signalsView.hidden = false;
     if (updateHash) setHash(els.category.value ? `#cat=${encodeURIComponent(els.category.value)}` : '');
   }
 
@@ -149,6 +159,7 @@
   }
 
   initHeader();
+  renderSignals();
   renderBoard();
   els.search.addEventListener('input', renderBoard);
   els.category.addEventListener('change', () => { if (selectedSlug) closeDetail(false); setHash(els.category.value ? `#cat=${encodeURIComponent(els.category.value)}` : ''); renderBoard(); });
@@ -161,6 +172,9 @@
     else { sortKey = next; sortDirection = next === 'rank' ? 1 : -1; }
     renderBoard();
   }));
+  els.signals.addEventListener('click',event=>{const card=event.target.closest('[data-slug]');if(card)renderDetail(rows.find(r=>r.slug===card.dataset.slug));});
+  els.signals.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){const card=event.target.closest('[data-slug]');if(card){event.preventDefault();renderDetail(rows.find(r=>r.slug===card.dataset.slug));}}});
+  els.detailContent.addEventListener('click',event=>{const link=event.target.closest('[data-detail-slug]');if(link){event.preventDefault();renderDetail(rows.find(r=>r.slug===link.dataset.detailSlug));}});
   els.tbody.addEventListener('click', event => {
     const tr = event.target.closest('tr[data-slug]');
     if (tr) renderDetail(rows.find(r=>r.slug === tr.dataset.slug));

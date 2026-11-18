@@ -26,17 +26,18 @@
     <main>
       <section class="method panel" aria-labelledby="method-title">
         <div class="section-head"><div><p class="kicker">MODEL NOTES <span class="section-index">/ 01</span></p><h2 id="method-title">How the signal is built</h2></div><span class="calibration">SNAPSHOT-CALIBRATED</span></div>
-        <div class="formula"><span class="formula-label">IMPLIED VALUE</span><span class="equals">=</span><span>TVL</span><b>×</b><span>category multiple</span><b>×</b><span>growth factor</span><b>×</b><span>maturity factor</span><b>×</b><span>breadth factor</span></div>
+        <div class="formula"><span class="formula-label">IMPLIED VALUE</span><span class="equals">=</span><span>TVL^0.85 · $100M scale</span><b>×</b><span>category multiple</span><b>×</b><span>growth factor</span><b>×</b><span>maturity factor</span><b>×</b><span>breadth factor</span></div>
         <div class="method-notes">
-          <p><span class="note-no">01</span><span>Category multiples are medians of the snapshot's own live-token protocols, shrunk toward the overall median in log space <b id="shrinkage-note">(k = 6)</b>, so one outlier peer cannot dominate a category.</span></p>
-          <p><span class="note-no">02</span><span>Growth runs 7-day TVL change through a tanh dampener. Maturity rewards time live without a token (τ = 540 days); breadth rewards multi-chain reach.</span></p>
-          <p><span class="note-no">03</span><span>The watchlist is a floor, not the board. Smaller pre-token protocols are ranked too.</span></p>
+          <p><span class="note-no">01</span><span>Peer mcap/TVL ratios are winsorized to the snapshot's P5-P95 range before any median is taken, so a single 400x outlier cannot set a category price.</span></p>
+          <p><span class="note-no">02</span><span>Category medians shrink toward the overall median in log space (k = 6; k = 12 when a category has two or fewer live peers) and are capped at 2.5x the overall median. Thin categories are flagged THIN in each detail page.</span></p>
+          <p><span class="note-no">03</span><span>Implied value scales with TVL^0.85, compressing giants: doubling TVL multiplies value by about 1.8x, not 2x. Growth, maturity (tau = 540 days) and breadth factors then adjust the base.</span></p>
         </div>
         <div class="multiples-wrap"><div class="table-caption"><span>CATEGORY CALIBRATION</span><span class="caption-rule"></span><span id="category-count">—</span></div>
-          <div class="multiples-scroll"><table class="multiples-table"><thead><tr><th>Category</th><th>Live peers</th><th>Used multiple</th></tr></thead><tbody id="multiples-body"></tbody></table></div>
+          <div class="multiples-scroll"><table class="multiples-table"><thead><tr><th>Category</th><th>Live peers</th><th>Raw median</th><th>Used multiple</th><th>Evidence</th></tr></thead><tbody id="multiples-body"></tbody></table></div>
         </div>
       </section>
 
+      <section id="signals-view" class="signals-view" aria-label="Top signals"><div class="board-heading"><div><p class="kicker">TOP SIGNALS</p><h2>Strongest signals</h2></div><div class="board-meta">AUTO-READ FROM THE BOARD</div></div><div id="signals-grid" class="signals-grid"></div></section>
       <section id="board-view" class="board-view" aria-label="Protocol board">
         <div class="board-heading"><div><p class="kicker">RANKED OPPORTUNITIES <span class="section-index">/ 02</span></p><h2>Protocol board</h2></div><div class="board-meta"><span class="source-mark"></span><span>Source: <b>DefiLlama snapshot</b></span><span class="board-meta-sep">·</span><span id="board-asof">—</span></div></div>
         <div class="controls panel">
@@ -47,7 +48,7 @@
           <label class="check-wrap"><input id="watchlist-filter" type="checkbox"><span class="fake-check"></span><span>Watchlist only</span></label>
           <div class="result-count" aria-live="polite"><strong id="result-count">—</strong><span>protocols</span></div>
         </div>
-        <div class="table-frame panel"><div class="table-scroll"><table class="board-table"><thead><tr><th class="rank-col"><button data-sort="rank" class="sort-button">Rank <span></span></button></th><th>Protocol</th><th>Category</th><th>Chains</th><th><button data-sort="tvl_usd" class="sort-button">TVL <span></span></button></th><th><button data-sort="change_7d" class="sort-button">7d <span></span></button></th><th><button data-sort="age_days" class="sort-button">Age <span></span></button></th><th class="value-col"><button data-sort="implied_value_usd" class="sort-button">Implied <span></span></button></th></tr></thead><tbody id="board-body"></tbody></table></div><div id="empty-state" class="empty-state" hidden><span class="empty-icon">⌕</span><strong>No protocols match these filters</strong><span>Adjust your search or clear a filter to see the board.</span><button id="clear-filters" type="button">Clear all filters <span>↗</span></button></div></div>
+        <div class="table-frame panel"><div class="table-scroll"><table class="board-table"><thead><tr><th class="rank-col"><button data-sort="rank" class="sort-button">Rank <span></span></button></th><th>Protocol</th><th>Category</th><th>Chains</th><th><button data-sort="tvl_usd" class="sort-button">TVL <span></span></button></th><th><button data-sort="change_7d" class="sort-button">7d <span></span></button></th><th><button data-sort="age_days" class="sort-button">Age <span></span></button></th><th>Signal</th><th class="value-col"><button data-sort="implied_value_usd" class="sort-button">Implied <span></span></button></th></tr></thead><tbody id="board-body"></tbody></table></div><div id="empty-state" class="empty-state" hidden><span class="empty-icon">⌕</span><strong>No protocols match these filters</strong><span>Adjust your search or clear a filter to see the board.</span><button id="clear-filters" type="button">Clear all filters <span>↗</span></button></div></div>
         <p class="board-footnote"><span>MODEL OUTPUT · USD</span><span>Values are comparative signals, not price targets.</span></p>
       </section>
 
